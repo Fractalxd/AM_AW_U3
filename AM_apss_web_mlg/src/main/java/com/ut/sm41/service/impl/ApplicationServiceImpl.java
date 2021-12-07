@@ -1,46 +1,92 @@
 package com.ut.sm41.service.impl;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.ut.sm41.dto.BeeceptorDTO;
+import com.auth0.jwt.JWT;
+import com.auth0.jwt.algorithms.Algorithm;
+import com.nimbusds.jose.shaded.json.JSONArray;
+import com.nimbusds.jose.shaded.json.JSONObject;
+import com.ut.sm41.dto.UserDTO;
+import com.ut.sm41.enums.RoleEnum;
 import com.ut.sm41.exception.BusinessException;
-import com.ut.sm41.service.ApplicationService;
-import com.ut.sm41.service.HttpService;
+import com.ut.sm41.model.Tokenz;
+import com.ut.sm41.model.User;
+import com.ut.sm41.repository.UserRepo;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
+import javax.transaction.Transactional;
+import java.security.interfaces.RSAPublicKey;
+import java.util.Date;
+import java.util.Optional;
 
 @Service
-public class ApplicationServiceImpl implements ApplicationService {
+public class AuthenticationServiceImpl implements AuthenticationService {
+
+    @Value("${spring.security.jwt.token.prefix}")
+    private String tokenPrefix;
+
+    @Value("${spring.security.jwt.expiration.time}")
+    private Long expirationTime;
+
+    @Value("${spring.security.oauth2.resourceserver.jwt.key-value}")
+    private RSAPublicKey publicKey;
 
     @Autowired
-    HttpService httpService;
+    private UserRepo userRepo;
+
+    @Autowired
+    private UserService userService;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
 
     @Override
-    public String firstService(){
-        return "service";
-    }
+    public JSONObject loginAuthentication(String username, String rawPassword) {
+        Optional<User> user = userRepo.findByName(username);
 
-    @Override
-    public BeeceptorDTO testHttp() throws IOException {
-        JsonParser parser = new JsonParser();
-        JsonObject json = (JsonObject) parser.parse(httpService.sendRequestHttpS("https://utsm41.free.beeceptor.com","GET",null,null,"json",null, null));
-        if(json.get("code")== null){
-            throw new BusinessException("Code doesn´t exist", HttpStatus.FORBIDDEN);
+        if (!user.isPresent()) {
+            // 401 Unauthorized
+            throw new BusinessException("Access is denied due to invalid credentials.", HttpStatus.UNAUTHORIZED,401);
         }
-        BeeceptorDTO beeceptorDTO = new BeeceptorDTO();
-        beeceptorDTO.setCode(json.get("code").getAsString());
-        beeceptorDTO.setMessage(json.get("message").getAsString());
-        beeceptorDTO.setStatus(json.get("status").getAsString());
-        return beeceptorDTO;
+
+        String encodedPassword = user.get().getPassword();
+        boolean isAuthenticated = passwordEncoder.matches(rawPassword, encodedPassword);
+
+        if (!isAuthenticated) {
+            // 401 Unauthorized
+            throw new BusinessException("Access is denied due to invalid credentials.", HttpStatus.UNAUTHORIZED,401);
+        }
+
+        String token = JWT.create().withSubject(username)
+                .withExpiresAt(new Date(System.currentTimeMillis() + expirationTime))
+                .sign(Algorithm.HMAC512(publicKey.getEncoded()));
+
+        Tokenz tokenz = new Tokenz();
+        tokenz.setToken(tokenPrefix + token);
+        JSONObject jsonObject = new JSONObject();
+        JSONObject usuario = new JSONObject();
+        jsonObject.put("permissions", new JSONArray());
+        usuario.put("username", user.get().getName());
+        usuario.put("role", RoleEnum.roleFromShort(user.get().getRole()));
+        jsonObject.put("user", usuario);
+        jsonObject.put("token", tokenz.getToken());
+        return jsonObject;
     }
 
     @Override
-    public void testPostHttp(BeeceptorDTO beeceptorDTO) throws IOException {
-        JsonParser parser = new JsonParser();
-        JsonObject json = (JsonObject) parser.parse(httpService.sendRequestHttpS("https://utsm41.free.beeceptor.com/api/v1/testPost","POST",null,null,"json",beeceptorDTO.toJson(), null));
-
+    @Transactional
+    public UserDTO createUser(User entity) {
+        UserDTO userDTO = new UserDTO();
+        userDTO.setName(entity.getName());
+        userDTO.setStatus(entity.getStatus());
+        userDTO.setPassword(passwordEncoder.encode(entity.getPassword()));
+        userDTO.setRole(entity.getRole().toString());
+        return userService.saveUser(userDTO);
     }
+
+
+
 }

@@ -26,7 +26,7 @@ public class BusinessException extends RuntimeException {
 	 */
 	private final HttpStatus httpStatus;
 
-	@Override
+    @Override
 	public String toString() {
 		return "BusinessException{" +
 				"codigo='" + codigo + '\'' +

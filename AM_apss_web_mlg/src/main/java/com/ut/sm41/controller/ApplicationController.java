@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import java.io.IOException;
 
 @RestController
-@RequestMapping("/api/v1")
+@RequestMapping("/votux/api/v1")
 public class ApplicationController {
 
     @Autowired
